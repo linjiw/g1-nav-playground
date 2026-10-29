@@ -427,7 +427,7 @@ function hud(dt, f, p) {
   const newest = S.ticks.length ? S.ticks[S.ticks.length - 1].mode : mode;
   const cap = caption(mode === 'navigate' || mode === 'settle' ? p : null) ||
     (S.view === 'live' && newest === 'navigate' && (mode === 'idle' || mode === 'hold') ? 'Planning the first step…' : '');
-  el('caption').textContent = cap;
+  if (cap) el('caption').textContent = cap; // keep the last words while it fades out
   el('caption').classList.toggle('on', !!cap);
   // plan bar: the plan being tracked, the playhead inside it, the next replan
   const bar = el('planbar');
