@@ -1,0 +1,134 @@
+[
+ {
+  "scene": "clutter",
+  "goal": [
+   8.6,
+   0.0
+  ],
+  "reached_s": 8.72,
+  "plans": 63,
+  "ticks": 598,
+  "file": "clutter-0.json"
+ },
+ {
+  "scene": "clutter",
+  "goal": [
+   6.4,
+   2.6
+  ],
+  "reached_s": 9.02,
+  "plans": 60,
+  "ticks": 574,
+  "file": "clutter-1.json"
+ },
+ {
+  "scene": "corridor",
+  "goal": [
+   6.0,
+   0.0
+  ],
+  "reached_s": 11.44,
+  "plans": 81,
+  "ticks": 744,
+  "file": "corridor-0.json"
+ },
+ {
+  "scene": "course",
+  "goal": [
+   13.2,
+   0.0
+  ],
+  "reached_s": 17.66,
+  "plans": 129,
+  "ticks": 1128,
+  "file": "course-0.json"
+ },
+ {
+  "scene": "empty",
+  "goal": [
+   4.0,
+   0.0
+  ],
+  "reached_s": 4.28,
+  "plans": 35,
+  "ticks": 376,
+  "file": "empty-0.json"
+ },
+ {
+  "scene": "empty",
+  "goal": [
+   1.5,
+   3.0
+  ],
+  "reached_s": 3.44,
+  "plans": 31,
+  "ticks": 345,
+  "file": "empty-1.json"
+ },
+ {
+  "scene": "gate",
+  "goal": [
+   4.6,
+   0.0
+  ],
+  "reached_s": 14.0,
+  "plans": 51,
+  "ticks": 844,
+  "file": "gate-0.json"
+ },
+ {
+  "scene": "lowbar",
+  "goal": [
+   5.2,
+   0.0
+  ],
+  "reached_s": 5.78,
+  "plans": 46,
+  "ticks": 468,
+  "file": "lowbar-0.json"
+ },
+ {
+  "scene": "open",
+  "goal": [
+   6.0,
+   2.0
+  ],
+  "reached_s": 7.04,
+  "plans": 54,
+  "ticks": 532,
+  "file": "open-0.json"
+ },
+ {
+  "scene": "open",
+  "goal": [
+   5.4,
+   -2.6
+  ],
+  "reached_s": 6.26,
+  "plans": 48,
+  "ticks": 482,
+  "file": "open-1.json"
+ },
+ {
+  "scene": "open",
+  "goal": [
+   -2.6,
+   0.6
+  ],
+  "reached_s": 4.94,
+  "plans": 37,
+  "ticks": 391,
+  "file": "open-2.json"
+ },
+ {
+  "scene": "slalom",
+  "goal": [
+   7.4,
+   0.0
+  ],
+  "reached_s": 10.9,
+  "plans": 80,
+  "ticks": 735,
+  "file": "slalom-0.json"
+ }
+]
