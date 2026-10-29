@@ -2,7 +2,7 @@
 // faces, two levels of detail. A Robot is one posed copy (the hero or a ghost) built from them.
 
 import * as THREE from 'three';
-import { Kinematics } from './kin.js';
+import { Kinematics } from './kin.js?v=learned-20261029-v1';
 
 async function download(url, onProgress) {
   const r = await fetch(url);

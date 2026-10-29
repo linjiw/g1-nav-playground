@@ -70,6 +70,11 @@ export function lerpQpos(a, b, u, out) {
   if (dot < 0.9995) {
     const th = Math.acos(Math.min(1, dot)), s = Math.sin(th), wa = Math.sin((1 - u) * th) / s, wb = sign * Math.sin(u * th) / s;
     for (let k = 3; k < 7; k++) out[k] = wa * a[k] + wb * b[k];
+  } else {
+    // q and -q describe the same orientation. Never interpolate through a zero quaternion.
+    for (let k = 3; k < 7; k++) out[k] = (1 - u) * a[k] + u * sign * b[k];
   }
+  const norm = Math.hypot(out[3], out[4], out[5], out[6]) || 1;
+  for (let k = 3; k < 7; k++) out[k] /= norm;
   return out;
 }
