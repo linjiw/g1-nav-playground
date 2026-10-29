@@ -28,8 +28,8 @@ try {
   await page.setRequestInterception(true);
   let failDownload = true;
   page.on('request', (r) => {
-    if (r.url().endsWith('gate-0.json')) setTimeout(() => r.continue(), 700);
-    else if (r.url().endsWith('empty-1.json') && failDownload) { failDownload = false; r.respond({ status: 503, body: 'unavailable' }); }
+    if (new URL(r.url()).pathname.endsWith('gate-0.json')) setTimeout(() => r.continue(), 700);
+    else if (new URL(r.url()).pathname.endsWith('empty-1.json') && failDownload) { failDownload = false; r.respond({ status: 503, body: 'unavailable' }); }
     else r.continue();
   });
   assert.equal(await page.evaluate(async () => {
@@ -63,21 +63,25 @@ try {
       return { scene: S.episode.scene, tile: document.querySelector('#scenes .on').dataset.scene,
         reached: S.events.some((e) => e.type === 'reached'),
         contacts: S.events.filter((e) => ['contact', 'fall'].includes(e.type)).length,
+        meta: S.episode.meta, label: document.getElementById('outcome').textContent,
         finalDistance: Math.hypot(...S.episode.goal.map((x, i) => x - S.ticks.at(-1).q[i])),
         cachedRuns: NAV.stats().cachedRuns };
     }, file);
     assert.equal(outcome.scene, outcome.tile);
-    assert.ok(outcome.reached);
-    assert.equal(outcome.contacts, 0);
+    assert.ok(outcome.meta.provenance);
+    assert.ok(outcome.label.startsWith('Recorded outcome:'));
+    if (outcome.meta.clean) { assert.ok(outcome.reached); assert.equal(outcome.contacts, 0); assert.ok(outcome.finalDistance < 0.4); }
+    else assert.notEqual(outcome.meta.outcome, 'reached');
     assert.ok(outcome.cachedRuns <= 4);
-    check(`all plan transitions: ${file}`, outcome);
+    check(`all plan transitions: ${file}`, { scene: outcome.scene, outcome: outcome.meta.outcome,
+      finalDistance: outcome.finalDistance, cachedRuns: outcome.cachedRuns });
   }
   assert.equal(await page.evaluate(async () => {
     await NAV.playRecorded('course-0.json'); document.getElementById('pause').click(); NAV.S.disp = NAV.S.ticks.at(-1).t;
     await new Promise((resolve) => setTimeout(resolve, 400));
-    return document.getElementById('state').textContent;
-  }), 'Stopped near the goal');
-  check('Course drift is reported accurately');
+    return { state: document.getElementById('state').textContent, outcome: NAV.S.episode.meta.outcome };
+  }).then(({ state, outcome }) => state === ({ reached: 'Reached the goal', contact: 'Obstacle contact', fall: 'Fell', time_limit: 'Time limit · goal not reached', stopped_near_goal: 'Stopped near the goal' })[outcome]), true);
+  check('final state reports the recorded outcome');
 
   await page.click('#reset');
   assert.equal(await page.evaluate(() => NAV.S.eventCursor), -1);
@@ -124,9 +128,9 @@ try {
   // Resume a complete run with normal supported 2x playback and observe its final state.
   await page.evaluate(async () => {
     window.reachedObserved = false;
-    window.traceObserver = new MutationObserver(() => { if (document.getElementById('trace').textContent.includes('Reached the goal')) window.reachedObserved = true; });
+    window.traceObserver = new MutationObserver(() => { if (document.getElementById('trace').textContent.includes('Entered goal region')) window.reachedObserved = true; });
     window.traceObserver.observe(document.getElementById('trace'), { childList: true });
-    await NAV.playRecorded('lowbar-0.json'); NAV.S.replaySpeed = 2;
+    await NAV.playRecorded('empty-0.json'); NAV.S.replaySpeed = 2;
   });
   await page.waitForFunction(() => NAV.S.view === 'review', { timeout: 30000 });
   await pause(200);
@@ -147,9 +151,12 @@ try {
   assert.ok(await phone.evaluate(() => document.body.classList.contains('side-closed')));
   assert.equal(await phone.evaluate(() => NAV.ui.candidates), false);
   await phone.tap('#menu');
-  await phone.waitForFunction(() => document.querySelector('[data-scene="gate"]').getBoundingClientRect().bottom < innerHeight - 10);
+  // The tile enters the viewport before the panel's slide finishes. Wait for a stable tap target.
+  await phone.waitForFunction(() => getComputedStyle(document.getElementById('side')).transform === 'none');
   await phone.tap('[data-scene="gate"]');
   await phone.waitForFunction(() => NAV.S.episode.scene === 'gate');
+  await phone.evaluate(async () => { await NAV.playRecorded('empty-0.json'); await NAV.playRecorded('gate-0.json'); });
+  assert.ok(await phone.evaluate(() => NAV.stats().cachedRuns <= 2));
   await phone.tap('#menu');
   await phone.waitForFunction(() => document.getElementById('side').getBoundingClientRect().top >= innerHeight);
   await phone.tap('#play');
@@ -162,7 +169,7 @@ try {
   const recovery = await browser.newPage(); let failStartup = true;
   await recovery.setRequestInterception(true);
   recovery.on('request', (r) => {
-    if (r.url().endsWith('index.json') && failStartup) { failStartup = false; r.respond({ status: 503, body: 'unavailable' }); }
+    if (new URL(r.url()).pathname.endsWith('index.json') && failStartup) { failStartup = false; r.respond({ status: 503, body: 'unavailable' }); }
     else r.continue();
   });
   recovery.on('pageerror', (e) => errors.push(e.message));

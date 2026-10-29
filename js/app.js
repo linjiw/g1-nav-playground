@@ -4,11 +4,11 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { CONFIG } from './config.js';
-import { icon } from './icons.js';
-import { lerpQpos } from './kin.js';
-import { loadRobotModel, Robot, solidMaterials, ghostMaterial } from './robot.js';
-import { clientIdentity, probe, LiveSource, RecordedSource } from './source.js';
+import { CONFIG } from './config.js?v=learned-20261029-v1';
+import { icon } from './icons.js?v=learned-20261029-v1';
+import { lerpQpos } from './kin.js?v=learned-20261029-v1';
+import { loadRobotModel, Robot, solidMaterials, ghostMaterial } from './robot.js?v=learned-20261029-v1';
+import { clientIdentity, probe, LiveSource, RecordedSource } from './source.js?v=learned-20261029-v1';
 
 const DT = 0.02, NQ = 36;
 const el = (id) => document.getElementById(id);
@@ -379,8 +379,8 @@ function latestAt(list, t) {
 
 // ---------------------------------------------------------------------------------------------------------- HUD
 const RULE = {
-  nearest_safe: 'Nearest safe', nearest_safe_checked: 'Nearest safe, checked', resampled: 'Resampled', resampled_checked: 'Resampled, checked',
-  stop: 'No safe motion · hold', stop_checked: 'No safe motion · hold', most_clearance: 'Most clearance', most_clearance_checked: 'Most clearance',
+  nearest_safe: 'Clears the margin', nearest_safe_checked: 'Clears the margin, checked', resampled: 'Resampled', resampled_checked: 'Resampled, checked',
+  stop: 'Fallback · most clearance', stop_checked: 'Fallback · most clearance', most_clearance: 'Most clearance', most_clearance_checked: 'Most clearance',
   committed: 'Committed', committed_checked: 'Committed', continue: 'Continue', duck_release: 'Duck release', duck_release_checked: 'Duck release', stand: 'Stand',
 };
 function ruleText(r) {
@@ -402,7 +402,7 @@ function caption(p, t) {
   // one plain sentence for what the planner is doing right now
   if (!p) return '';
   const boxes = (S.episode && S.episode.boxes) || [];
-  if (holding(p.rule)) return 'No safe motion yet · holding while it looks for a way through';
+  if (holding(p.rule)) return 'No forward plan clears the margin · trying a fallback';
   if (p.flags && (p.flags.side || p.flags.gate_side)) {
     const g = p.flags.gate_gap_m;
     return g && g < 1 ? `Turning sideways through a ${g.toFixed(2)} m gap` : 'Turning sideways through the gap';
@@ -433,18 +433,19 @@ function planIcon(p) {
 function logPlan(p) {
   const s = skills(p), clear = p.chosen_clearance_m == null ? '' : ` · ${p.chosen_clearance_m.toFixed(2)} m clear`;
   const secs = LOCAL ? LOCAL.planSeconds(p) : '';
-  logLine(planIcon(p), ruleText(p.rule) + (s.length ? ` · ${s.join(' · ')}` : ''), `${p.safe}/${p.candidates} safe${clear}${secs}`, holding(p.rule));
+  logLine(planIcon(p), ruleText(p.rule) + (s.length ? ` · ${s.join(' · ')}` : ''), `${p.safe}/${p.candidates} pass${clear}${secs}`, holding(p.rule));
 }
 function logEvent(e, notify = true) {
   if (e.type === 'goal') logLine('flag', 'New goal', `${e.xy[0].toFixed(1)}, ${e.xy[1].toFixed(1)} m`);
   else if (e.type === 'reached') {
     const g = [...S.events].reverse().find((x) => x.type === 'goal' && x.t <= e.t), dur = e.t - (g ? g.t : 0);
-    logLine('flag', 'Reached the goal', `${dur.toFixed(1)} s`);
-    if (notify) toast(`Reached the goal in ${dur.toFixed(1)} s of sim time`);
+    logLine('flag', 'Entered goal region', `${dur.toFixed(1)} s`);
+    if (notify) toast(`Entered the goal region in ${dur.toFixed(1)} s · settling`);
   }
   else if (e.type === 'contact') logLine('triangle-alert', 'Touched an obstacle', `${e.force_n} N`, true);
   else if (e.type === 'fall') { logLine('triangle-alert', 'Fell', `pelvis ${e.height_m} m`, true); if (notify) toast('The robot fell. Reset to try again.', true); }
   else if (e.type === 'push') logLine('zap', 'Shoved', `${Math.hypot(...e.dv).toFixed(1)} m/s`);
+  else if (e.type === 'finished') logLine(e.outcome === 'reached' ? 'flag' : 'triangle-alert', OUTCOME[e.outcome] || e.outcome, 'Recording ended', e.outcome !== 'reached');
   else if (e.type === 'scene_refused' && notify) toast('That layout could not start in the simulator; back to the default scene.', true);
 }
 function rebuildTrace(t) {
@@ -454,7 +455,7 @@ function rebuildTrace(t) {
   S.eventCursor = latestAt(S.events, t);
   const entries = [
     ...S.plans.slice(0, S.planCursor + 1).filter((p) => p.tick > 0).map((p) => ({ t: p.t, plan: p })),
-    ...S.events.slice(0, S.eventCursor + 1).filter((e) => ['goal', 'reached', 'contact', 'fall', 'push'].includes(e.type)).map((e) => ({ t: e.t, event: e })),
+    ...S.events.slice(0, S.eventCursor + 1).filter((e) => ['goal', 'reached', 'contact', 'fall', 'push', 'finished'].includes(e.type)).map((e) => ({ t: e.t, event: e })),
   ].sort((a, b) => a.t - b.t).slice(-6);
   for (const entry of entries) entry.plan ? logPlan(entry.plan) : logEvent(entry.event, false);
 }
@@ -469,18 +470,22 @@ function toast(text, bad = false) {
 }
 
 const MODE = { idle: 'Standing · waiting for a goal', navigate: 'Walking to the goal', settle: 'Stopping at the goal', hold: 'Standing', fallen: 'Fallen' };
+const OUTCOME = { reached: 'Reached the goal', contact: 'Obstacle contact', fall: 'Fell', time_limit: 'Time limit · goal not reached', stopped_near_goal: 'Stopped near the goal' };
 let hudClock = 0;
 function hud(dt, f, p) {
   hudClock += dt;
   if (hudClock < 0.1) return;
   hudClock = 0;
   const mode = f ? f.mode : 'idle';
+  const atEnd = S.recorded && S.episode?.meta && S.disp >= S.ticks.at(-1).t - 1e-6;
   let state = MODE[mode] || mode;
   if (mode === 'hold' && S.events.some((e) => e.type === 'reached' && e.t <= S.disp + 1e-9)) {
     const goal = S.episode?.goal;
     state = goal && f && Math.hypot(f.q[0] - goal[0], f.q[1] - goal[1]) > 0.4 ? 'Stopped near the goal' : 'At the goal';
   }
-  if (mode === 'navigate' && p && p.tick > 0 && skills(p).length) state = `Walking · ${skills(p).join(' · ')}`;
+  if (mode === 'navigate' && p && holding(p.rule)) state = 'Trying a fallback motion';
+  else if (mode === 'navigate' && p && p.tick > 0 && skills(p).length) state = `Walking · ${skills(p).join(' · ')}`;
+  if (atEnd) state = OUTCOME[S.episode.meta.outcome] || state;
   if (S.status && S.status.paused && S.view === 'live') state = `Paused · ${state}`;
   el('state').textContent = state;
   el('speed').textContent = f ? `${f.speed.toFixed(2)} m/s` : '–';
@@ -489,7 +494,7 @@ function hud(dt, f, p) {
   el('rtf').textContent = S.view === 'live' ? `${r >= 0.995 ? '1' : r.toFixed(2)}×` : S.view === 'replay' ? `${S.replaySpeed}× replay` : 'paused';
   el('viewers').textContent = S.status && S.status.viewers != null ? S.status.viewers : '–';
   const newest = S.ticks.length ? S.ticks[S.ticks.length - 1].mode : mode;
-  const cap = caption(mode === 'navigate' || mode === 'settle' ? p : null) ||
+  const cap = atEnd ? (OUTCOME[S.episode.meta.outcome] || '') : caption(mode === 'navigate' || mode === 'settle' ? p : null) ||
     (S.view === 'live' && newest === 'navigate' && (mode === 'idle' || mode === 'hold') ? 'Planning the first step…' : '');
   if (cap) el('caption').textContent = cap; // keep the last words while it fades out
   el('caption').classList.toggle('on', !!cap);
@@ -934,7 +939,7 @@ let recordedRequest = 0;
 async function goRecorded(why) {
   recordedRequest++;
   if (S.source && S.source.close) S.source.close();
-  const rec = new RecordedSource(CONFIG.data);
+  const rec = new RecordedSource(CONFIG.data, coarse ? 2 : 4, 'learned-generator', CONFIG.dataVersion);
   S.source = rec;
   S.runs = await rec.index();
   if (!S.runs.length) throw new Error('No recorded runs found. Please retry.');
@@ -981,7 +986,15 @@ async function playRecorded(file) {
   // A slower response must never replace a more recent scene or live connection.
   if (request !== recordedRequest || source !== S.source || !S.recorded) return false;
   if (run.meta.scene !== S.recorded.scene) showRecordedScene(run.meta.scene, false);
-  S.episode = { boxes: run.boxes, goal: run.meta.goal, scene: run.meta.scene, episode: file, replan_ticks: 8, speed: 1, paused: false };
+  S.episode = { boxes: run.boxes, goal: run.meta.goal, scene: run.meta.scene, episode: file, meta: run.meta, replan_ticks: 8, speed: 1, paused: false };
+  const meta = run.meta, provenance = meta.provenance;
+  el('run-result').hidden = !provenance;
+  if (provenance) {
+    el('run-result').dataset.outcome = meta.outcome;
+    el('outcome').textContent = `Recorded outcome: ${OUTCOME[meta.outcome] || meta.outcome}`;
+    el('run-detail').textContent = `One fixed-seed attempt · ${meta.final_distance_m.toFixed(2)} m from goal at end`;
+    el('model-summary').textContent = `Model: Flow whole-body planner · checkpoint ${provenance.checkpoint_sha256.slice(0, 12)}. The same weights and settings are used in every scene. See the repository's model card for the checkpoint comparison and full outcomes.`;
+  }
   resetRun();
   buildObstacles(run.boxes);
   S.ticks = run.frames;
@@ -1014,14 +1027,14 @@ async function goLive(manual = false) {
   setView('live');
   renderLink();
 }
-const FEATURED = ['lowbar', 'gate', 'course', 'corridor', 'slalom', 'open', 'clutter', 'empty']; // the first recorded run shown
+const FEATURED = ['open', 'empty', 'slalom', 'lowbar', 'corridor', 'gate', 'clutter', 'course']; // introduce navigation before the stress tests
 // scene names for the recorded mode when the live server never answered (mirrors playground/scenes.py)
 const SCENE_FALLBACK = [ // keep in step with scenes.py
   ['open', 'Open floor', ['walk', 'turn'], 'A few boxes on an open floor.'], ['slalom', 'Slalom', ['weave', 'turn'], 'Walls that leave a 0.87 m opening on alternating sides.'],
-  ['lowbar', 'Low bar', ['duck'], 'A beam at 1.12 m across a walled lane. The only way through is under it.'],
-  ['corridor', 'Narrow corridor', ['arms in'], '0.80 m, then 0.62 m between walls.'],
-  ['gate', 'Shoulder gate', ['side-step'], 'Blocks at arm height with a 0.40 m slot: too narrow for the shoulders, open at the legs.'],
-  ['clutter', 'Clutter', ['weave'], 'Twelve boxes, 0.5–1.3 m tall, at least 0.75 m apart.'], ['course', 'Course', ['weave', 'duck', 'turn'], 'Slalom, then the low bar, then two boxes before the goal.'],
+  ['lowbar', 'Low bar', ['overhead test'], 'A 1.12 m beam. Tests learned lowering without a scripted duck target.'],
+  ['corridor', 'Narrow corridor', ['clearance test'], '0.80 m, then 0.62 m between walls. No arm-position preset.'],
+  ['gate', 'Shoulder gate', ['posture test'], 'A 0.40 m arm-height slot, open at the legs. No forced sideways turn or retrieved motion.'],
+  ['clutter', 'Clutter', ['weave'], 'Scattered boxes with at least 0.75 m spacing.'], ['course', 'Course', ['combined test'], 'Slalom, a low bar, and boxes before the goal.'],
   ['empty', 'Empty', ['walk'], 'Nothing but floor.'],
 ].map(([id, name, sk, blurb]) => ({ id, name, skills: sk, blurb, goal: [0, 0] }));
 

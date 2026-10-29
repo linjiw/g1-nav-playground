@@ -4,34 +4,34 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>G1 Nav Playground</title>
-<meta name="description" content="A flow-matching whole-body planner walks a simulated Unitree G1 through obstacles: it routes, ducks under bars, tucks its arms and turns sideways through gaps, and the SONIC tracker walks it in physics.">
+<meta name="description" content="Explore our learned flow-matching whole-body planner on a simulated Unitree G1. Inspect generated motions, physical execution, and outcomes across eight scenes.">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-Bt9aPLnAa28gb2/YeYvSJVpbiOJ4CvxTfygEW5d7DT4='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' http://127.0.0.1:* http://localhost:*; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="theme-color" content="#0d0f12">
 <meta property="og:title" content="G1 Nav Playground">
-<meta property="og:description" content="A learned whole-body planner walks a simulated humanoid through obstacles: routing, ducking, side-stepping.">
-<meta property="og:image" content="og.png">
+<meta property="og:description" content="Learned motion generation, visible plans, and honest outcomes across eight humanoid navigation scenes.">
+<meta property="og:image" content="og.png?v=learned-20261029-v1">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230d0f12'/%3E%3Cpath d='M8 23c3-9 13-5 16-14' fill='none' stroke='%232dd4bf' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='9' r='3.2' fill='%23f59e0b'/%3E%3Ccircle cx='8' cy='23' r='3.2' fill='%23e8ecf2'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/app.css?v=learned-20261029-v1">
 <script type="importmap">
 { "imports": { "three": "./vendor/three/build/three.module.min.js", "three/addons/": "./vendor/three/examples/jsm/" } }
 </script>
 </head>
 <body>
-<div id="view" aria-label="3D view: click the floor to set a goal"></div>
+<div id="view" aria-label="3D view: select an amber ring to replay a recorded goal"></div>
 
 <header class="brand">
   <button id="menu" class="icon-btn" title="Show or hide the panel" aria-label="Show or hide the panel"><span data-icon="sliders-horizontal"></span></button>
   <div>
     <h1>G1 Nav <span>Playground</span> <button id="about-open" class="icon-btn bare" title="How it works" aria-label="How it works"><span data-icon="info" data-size="15"></span></button></h1>
-    <p>Give it a goal; a learned planner finds the way.</p>
+    <p>Our learned whole-body planner, in motion.</p>
   </div>
 </header>
 
 <div id="link" class="link">
-  <i class="dot"></i><span id="link-text">Connecting…</span>
+  <i class="dot"></i><span id="link-text">Loading recordings…</span>
   <button id="wheel" class="pill-btn" hidden>Take the wheel</button>
 </div>
 
@@ -48,13 +48,18 @@
     <h2>Playground</h2>
     <div id="scenes" class="tiles"></div>
     <p id="blurb" class="note"></p>
+    <div id="run-result" class="run-result" aria-live="polite" hidden>
+      <span class="edition">Learned motion generation</span>
+      <b id="outcome"></b>
+      <p id="run-detail" class="note"></p>
+    </div>
   </section>
   <section>
     <h2>Show</h2>
     <div id="overlays" class="toggles"></div>
   </section>
   <section>
-    <h2>Simulation</h2>
+    <h2>Playback</h2>
     <div class="row">
       <button id="pause" class="btn"><span data-icon="pause"></span><span class="lbl">Pause</span></button>
       <button id="reset" class="btn"><span data-icon="rotate-ccw"></span>Reset</button>
@@ -95,12 +100,12 @@
 
 <ol id="trace" class="trace" aria-live="polite"></ol>
 <div id="caption" class="caption"></div>
-<div id="hint" class="hint"><span data-icon="mouse-pointer-click"></span>Click anywhere on the floor to send the robot there</div>
+<div id="hint" class="hint"><span data-icon="mouse-pointer-click"></span>Click an amber ring to replay a recorded goal</div>
 <div id="toast" class="toast" role="status"></div>
 
 <footer class="dock card">
   <div class="dock-head"><span id="plan-label">–</span>
-    <span class="key"><i class="k-input"></i>plan input<i class="k-plan"></i>chosen plan<i class="k-cand"></i>candidates<i class="k-bad"></i>would collide</span></div>
+    <span class="key"><i class="k-input"></i>plan input<i class="k-plan"></i>chosen plan<i class="k-cand"></i>candidates<i class="k-bad"></i>below margin</span></div>
   <div id="planbar" class="planbar idle"><b></b><i class="done"></i><i class="next"></i><i class="at"></i></div>
   <div class="runrow">
     <button id="play" class="icon-btn" title="Replay this run"></button>
@@ -113,7 +118,7 @@
 
 <div id="splash" class="splash card">
   <h2>G1 Nav Playground</h2>
-  <p>A simulated Unitree G1 that only needs a goal. Every 0.16 s a flow-matching planner imagines 16 one-second whole-body motions from the robot's recent poses and a map of the obstacles, drops the ones that would collide, and keeps the one that heads best toward the goal. The SONIC tracker turns that motion into joint torques in MuJoCo.</p>
+  <p>Our flow-matching model turns recent robot poses, an obstacle map, and a nearby goal into candidate whole-body motions. Watch the chosen motion become physical movement through the SONIC tracker. These recordings show the learned generator with scripted postures and motion retrieval disabled, including the scenes this configuration cannot yet solve.</p>
   <div class="load" id="load-model"><span>Robot model</span><b><i></i></b><em>waiting…</em></div>
   <div class="load" id="load-link"><span>Runs</span><b><i></i></b><em>waiting…</em></div>
   <p id="load-error" class="err"></p>
@@ -123,16 +128,21 @@
 
 <dialog id="about" class="card" aria-labelledby="about-title">
   <button id="about-close" class="icon-btn bare" aria-label="Close" autofocus><span data-icon="x"></span></button>
-  <h2 id="about-title">How it works</h2>
-  <p>You only choose where the robot should go. Ducking under bars, tucking the arms in a corridor and turning sideways through a gap are the planner's own choices, made from the geometry.</p>
-  <p><b>Planner.</b> A flow-matching model that generates whole-body motion. At every replan it samples 16 candidate one-second motions from the robot's last poses, an elevation map of the obstacles and a nearby goal on a route; it keeps the candidates that clear the obstacles and picks the one that ends nearest that goal.</p>
-  <p><b>Tracker.</b> NVIDIA's SONIC whole-body tracker turns the chosen motion into joint targets for 29 motors, simulated in MuJoCo. Contacts, slips and shoves are physical.</p>
-  <p><b>What you see.</b> The solid robot is the simulated motion. Teal: the chosen plan and steering point. White lines: other candidates; red ones would collide. Dashed: the route. Turn on “Predicted planner poses” to see the violet input pose and teal predicted end pose; these ghosts are plans, not additional robots.</p>
-  <p class="static-only"><b>Recorded runs.</b> Every run here was recorded from the real planner and SONIC in MuJoCo, and the page replays each tick and plan exactly as it happened. Planning ran slower than real time on a CPU, so the timeline shows it at 1× (or ½×, 2×). Pick a playground, then click an amber ring to watch the robot walk to it.</p>
+  <h2 id="about-title">Meet our learned planner</h2>
+  <p>A flow-matching model learns to generate whole-body motion from motion examples paired with obstacle scenes. It repeatedly transforms noise into a short motion, conditioned on the robot's recent poses, an elevation map, and a local goal. The output describes the pelvis and all 29 joints.</p>
+  <div class="planner-chain" aria-label="Planning pipeline"><span>State + map + route goal</span><span>Learned motions</span><span>Geometric selection</span><span>SONIC + physics</span></div>
+  <p><b>What the model does.</b> Every 0.16 seconds of simulated time it samples 16 one-second candidate motions. Their joint trajectories come from the network. This edition has no fixed arm presets, forced sideways turns, retrieved motion clips, gradient guidance, leg IK, or world-model pose edits.</p>
+  <p><b>What surrounds it.</b> Geometric routing supplies nearby goals. Clearance and progress checks select among the generated motions, requesting more samples or stop-conditioned motions when needed. A fallback can still miss the clearance margin. SONIC handles tracking; navigation is not learned end to end.</p>
+  <p><b>Tracker.</b> NVIDIA's SONIC whole-body tracker turns the chosen motion into joint targets for 29 motors, simulated in MuJoCo. The solid robot follows physical dynamics, so execution can differ from the plan.</p>
+  <p><b>What you see.</b> The solid robot is the simulated motion. Teal shows the chosen plan and steering point; white lines are other candidates, and red lines fall below the geometric clearance margin. Dashed lines show the route. Optional ghost poses show planner predictions. Predicted clearance does not guarantee collision-free physical execution.</p>
+  <p class="static-only"><b>Every attempt counts.</b> All eight original scenes are included, with one fixed-seed attempt per goal. Contacts, falls, and time limits remain visible. The shoulder gate tests whether the model can discover a suitable posture without the former sideways-turn rule. This small demo is a capability inspection, not a held-out success-rate benchmark.</p>
+  <p id="model-summary" class="small"></p>
+  <p class="small"><a href="MODEL_CARD.md" target="_blank" rel="noopener">Model card, checkpoint comparison, and all run outcomes</a></p>
+  <p class="static-only"><b>Recorded simulation.</b> The browser replays recorded plans and physics at ½×, 1×, or 2×; it does not run the model. CPU planning ran with simulation time paused during inference. Click an amber ring to select a recorded goal.</p>
   <p class="not-static"><b>Live or recorded.</b> When the live server is up, the robot runs on a lab workstation's CPU and everyone watching sees the same world; one person drives at a time. Planning on a CPU is slower than real time, so the robot moves in slow motion and the timeline replays any run at 1×. When the server is offline, the page replays recorded runs.</p>
-  <p class="small">Unitree G1 model © Unitree Robotics (BSD-3-Clause). SONIC © NVIDIA (NVIDIA Open Model License; runs on the server only). Icons: Lucide (ISC). three.js (MIT). It is a simulation; nothing here drives a real robot.</p>
+  <p class="small">Unitree G1 model © Unitree Robotics (BSD-3-Clause). SONIC © NVIDIA (NVIDIA Open Model License; used during recording). Icons: Lucide (ISC). three.js (MIT). It is a simulation; nothing here drives a real robot.</p>
 </dialog>
 
-<script type="module" src="js/app.js"></script>
+<script type="module" src="js/app.js?v=learned-20261029-v1"></script>
 </body>
 </html>

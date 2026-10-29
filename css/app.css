@@ -198,10 +198,19 @@ dialog#about::backdrop { background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(
 dialog#about h2 { margin: 0 0 12px; font-size: 16px; color: var(--text); }
 dialog#about p { margin: 0 0 12px; font-size: 13.5px; line-height: 21px; }
 dialog#about b { color: var(--text); font-weight: 500; }
+dialog#about a { color: var(--plan); }
 dialog#about .small { font-size: 11.5px; line-height: 17px; color: var(--text-4); }
 #about-close { position: absolute; top: 14px; right: 14px; }
 
 /* ------------------------------------------------------------------------------------------- narrow screens */
+.run-result { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--hair); border-radius: 8px; background: var(--bg); }
+.run-result .edition { display: block; color: var(--plan); font-size: 10px; margin-bottom: 5px; }
+.run-result b { font-size: 12px; font-weight: 500; color: var(--text); }
+.run-result[data-outcome="contact"] b, .run-result[data-outcome="fall"] b { color: var(--bad); }
+.run-result .note { margin: 5px 0 0; font-size: 11px; }
+.planner-chain { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+.planner-chain span { border: 1px solid var(--hair-strong); border-radius: 6px; padding: 7px 9px; font-size: 11px; color: var(--plan); }
+.planner-chain span + span::before { content: '→ '; }
 @media (max-width: 1360px) { .link { top: 70px; } .toast { top: 116px; } .trace { top: 120px; } }
 @media (max-width: 980px) { .trace { display: none; } .stats .wide { min-width: 140px; } }
 @media (max-width: 760px) {

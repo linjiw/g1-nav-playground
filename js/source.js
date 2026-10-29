@@ -66,14 +66,16 @@ export class LiveSource {
 }
 
 export class RecordedSource {
-  constructor(base, maxCachedRuns = 4) {
+  constructor(base, maxCachedRuns = 4, expectedProfile = null, version = '') {
     this.base = base;
     this.kind = 'recorded';
     this.cache = new Map();
     this.maxCachedRuns = maxCachedRuns;
+    this.expectedProfile = expectedProfile;
+    this.query = version ? `?v=${encodeURIComponent(version)}` : '';
   }
   async index() {
-    if (!this._index) this._index = fetchJSON(`${this.base}/runs/index.json`).catch((e) => {
+    if (!this._index) this._index = fetchJSON(`${this.base}/runs/index.json${this.query}`).catch((e) => {
       this._index = null;
       throw e;
     });
@@ -81,11 +83,18 @@ export class RecordedSource {
   }
   async run(file) {
     let pending = this.cache.get(file);
-    if (!pending) pending = fetchJSON(`${this.base}/runs/${file}`).then((run) => {
+    if (!pending) pending = fetchJSON(`${this.base}/runs/${file}${this.query}`).then((run) => {
       if (!run.meta || !Array.isArray(run.boxes) || !run.frames?.length ||
           !Array.isArray(run.plans) || !Array.isArray(run.events) ||
           run.frames.some((f) => !Number.isFinite(f.t) || f.q?.length !== 36 || !f.q.every(Number.isFinite))) {
         throw new Error('Invalid recorded run');
+      }
+      if (this.expectedProfile) {
+        const p = run.meta.provenance;
+        if (p?.profile !== this.expectedProfile || !/^[0-9a-f]{64}$/.test(p.checkpoint_sha256) ||
+            ['guidance', 'pose_overrides', 'retrieval', 'pose_refinement', 'leg_ik'].some((key) => p[key] !== false)) {
+          throw new Error('This recording does not match the learned-planner edition');
+        }
       }
       return run;
     }).catch((e) => {

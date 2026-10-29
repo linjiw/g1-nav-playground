@@ -1,0 +1,110 @@
+{
+  "name": "Flow whole-body planner",
+  "edition": "learned-generator",
+  "checkpoint_sha256": "8acafde328febffe0127fba8832a7a24dc76d01852bfaf0a3eb1dedc88d028ab",
+  "checkpoint": 0,
+  "parameters": 9435137,
+  "comparison": [
+    {
+      "checkpoint": 0,
+      "sha256": "8acafde328febffe0127fba8832a7a24dc76d01852bfaf0a3eb1dedc88d028ab",
+      "clean": 1,
+      "falls": 0,
+      "contacts": 0,
+      "normalized_distance_sum": 2.332476644370123,
+      "outcomes": {
+        "empty-0.json": "reached",
+        "lowbar-0.json": "time_limit",
+        "corridor-0.json": "time_limit",
+        "gate-0.json": "time_limit"
+      }
+    },
+    {
+      "checkpoint": 1,
+      "sha256": "6e4be2fb8360ae971e2cb8f48643a4b3634c39f63a4bbcf901e1351e5d59fc2c",
+      "clean": 1,
+      "falls": 0,
+      "contacts": 1,
+      "normalized_distance_sum": 2.0326715161649944,
+      "outcomes": {
+        "empty-0.json": "reached",
+        "lowbar-0.json": "time_limit",
+        "corridor-0.json": "contact",
+        "gate-0.json": "time_limit"
+      }
+    },
+    {
+      "checkpoint": 2,
+      "sha256": "9b738c8d90cba3b3c789b527a469758ac9bc4152c4013f1d9466ac1dc883cd24",
+      "clean": 1,
+      "falls": 0,
+      "contacts": 2,
+      "normalized_distance_sum": 1.734348717948718,
+      "outcomes": {
+        "empty-0.json": "reached",
+        "lowbar-0.json": "contact",
+        "corridor-0.json": "contact",
+        "gate-0.json": "time_limit"
+      }
+    }
+  ],
+  "selection_scope": "Four demonstration tasks; one fixed episode seed per checkpoint. Not a held-out benchmark.",
+  "generation": {
+    "candidates": 16,
+    "ode_steps": 10,
+    "horizon_seconds": 1,
+    "replan_seconds": 0.16
+  },
+  "visualization": {
+    "physical_frame_hz": 50,
+    "chosen_plan_hz": 50,
+    "candidate_path_spacing_seconds": 0.08
+  },
+  "provenance": {
+    "id": "flow-learned-v1",
+    "checkpoint_sha256": "8acafde328febffe0127fba8832a7a24dc76d01852bfaf0a3eb1dedc88d028ab",
+    "profile": "learned-generator",
+    "episode_seed": 1,
+    "noise_episode": 1,
+    "attempt": 1,
+    "guidance": false,
+    "pose_overrides": false,
+    "retrieval": false,
+    "pose_refinement": false,
+    "leg_ik": false,
+    "route": "geometric",
+    "selection": "geometric",
+    "tracker": "SONIC",
+    "simulator": "MuJoCo",
+    "replan_seconds": 0.16,
+    "initial_candidates": 16
+  },
+  "outcomes": {
+    "clutter-0.json": "reached",
+    "clutter-1.json": "reached",
+    "corridor-0.json": "time_limit",
+    "course-0.json": "time_limit",
+    "empty-0.json": "reached",
+    "empty-1.json": "reached",
+    "gate-0.json": "time_limit",
+    "lowbar-0.json": "time_limit",
+    "open-0.json": "reached",
+    "open-1.json": "reached",
+    "open-2.json": "reached",
+    "slalom-0.json": "reached"
+  },
+  "run_sha256": {
+    "clutter-0.json": "8caf4dcb64afa6ef1f9af27c0babefeda74703648610e58d6a1500609ae02207",
+    "clutter-1.json": "0e33fb9ebafbfa4c97e1f9af66bf894bcb86bdc17814bd6cee49ef14d27989ec",
+    "corridor-0.json": "dbe4fa3d61e9d95574124a951b68af63e6b82a4d0f7f77f6adb3db58e9f87f45",
+    "course-0.json": "1e027f2d1989386bedb0e41b983e11f800bece2faa3cc26bea7d74ef296cc68d",
+    "empty-0.json": "9c774bacd01560ee969103af7fb4220b17a3f39894b6dbd1c1417ccf367421f2",
+    "empty-1.json": "21e8881fc3b9bba51d34f7b06bf94e3d17deeb9b400d8657bd75eaf47d2236d8",
+    "gate-0.json": "4041350358cf5f1af06845098c1c6bebe319ca14e50db6096aa39c2b3cd05507",
+    "lowbar-0.json": "60c9778b2cc74e11ab54dc414c937f373bd26475e0fd1379c41ea019612c0e7d",
+    "open-0.json": "ed10775861755dd39d3436eda3c5182cda0ea49bafa17a2c32d9c373a33dfffc",
+    "open-1.json": "026d8c1fd90d807825bb31f5a749e977672dd8e2c53fbd3737c3468537332534",
+    "open-2.json": "d3b17c57d4ceb661802c567a919c68a44512a4418548fe11c7cb9271ab6fa035",
+    "slalom-0.json": "a789204abd7a0eb515c78e26af3ffd6b22ab748ecb8a834c9543caf0438e8f28"
+  }
+}
