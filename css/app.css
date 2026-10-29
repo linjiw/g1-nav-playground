@@ -190,6 +190,8 @@ body.watching .side .btn:not(.wide), body.watching .seg { opacity: 0.55; }
 .err { color: var(--bad); }
 .err:empty { display: none; }
 body:not(.model-ready) .splash .btn { visibility: hidden; }
+body:not(.model-ready) .splash #load-retry:not([hidden]) { visibility: visible; }
+.tiles button.loading { border-color: var(--goal); }
 body.ready .splash, body.dismissed .splash { opacity: 0; transform: translate(-50%, -46%); pointer-events: none; }
 dialog#about { width: min(540px, calc(100% - 32px)); max-height: calc(100% - 48px); padding: 22px 24px 10px; color: var(--text-2); background: var(--card-solid); box-shadow: var(--shadow); }
 dialog#about::backdrop { background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(2px); }

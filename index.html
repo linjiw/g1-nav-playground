@@ -87,7 +87,8 @@
       <li class="static-only"><b>Click an amber ring</b> replay the run to that goal</li>
       <li><b>Drag · scroll</b> orbit · zoom</li>
       <li><b><kbd>Space</kbd></b> pause · <b><kbd>R</kbd></b> reset · <b><kbd>Esc</kbd></b> stop</li>
-      <li><b><kbd>F</kbd></b> shove · <b><kbd>E</kbd></b> edit · <b><kbd>1</kbd>–<kbd>8</kbd></b> playgrounds</li>
+      <li class="live-only"><b><kbd>F</kbd></b> shove · <b><kbd>E</kbd></b> edit</li>
+      <li><b><kbd>1</kbd>–<kbd>8</kbd></b> playgrounds</li>
     </ul>
   </details>
 </aside>
@@ -116,6 +117,7 @@
   <div class="load" id="load-model"><span>Robot model</span><b><i></i></b><em>waiting…</em></div>
   <div class="load" id="load-link"><span>Runs</span><b><i></i></b><em>waiting…</em></div>
   <p id="load-error" class="err"></p>
+  <button id="load-retry" class="btn" hidden>Retry loading</button>
   <button id="splash-skip" class="btn">Look around while it loads</button>
 </div>
 
@@ -125,7 +127,7 @@
   <p>You only choose where the robot should go. Ducking under bars, tucking the arms in a corridor and turning sideways through a gap are the planner's own choices, made from the geometry.</p>
   <p><b>Planner.</b> A flow-matching model that generates whole-body motion. At every replan it samples 16 candidate one-second motions from the robot's last poses, an elevation map of the obstacles and a nearby goal on a route; it keeps the candidates that clear the obstacles and picks the one that ends nearest that goal.</p>
   <p><b>Tracker.</b> NVIDIA's SONIC whole-body tracker turns the chosen motion into joint targets for 29 motors, simulated in MuJoCo. Contacts, slips and shoves are physical.</p>
-  <p><b>What you see.</b> Violet: the pose the planner planned from. Teal: the chosen plan, its end pose and the point it steers toward. White lines: the other candidates; red ones would collide. Dashed: the route.</p>
+  <p><b>What you see.</b> The solid robot is the simulated motion. Teal: the chosen plan and steering point. White lines: other candidates; red ones would collide. Dashed: the route. Turn on “Predicted planner poses” to see the violet input pose and teal predicted end pose; these ghosts are plans, not additional robots.</p>
   <p class="static-only"><b>Recorded runs.</b> Every run here was recorded from the real planner and SONIC in MuJoCo, and the page replays each tick and plan exactly as it happened. Planning ran slower than real time on a CPU, so the timeline shows it at 1× (or ½×, 2×). Pick a playground, then click an amber ring to watch the robot walk to it.</p>
   <p class="not-static"><b>Live or recorded.</b> When the live server is up, the robot runs on a lab workstation's CPU and everyone watching sees the same world; one person drives at a time. Planning on a CPU is slower than real time, so the robot moves in slow motion and the timeline replays any run at 1×. When the server is offline, the page replays recorded runs.</p>
   <p class="small">Unitree G1 model © Unitree Robotics (BSD-3-Clause). SONIC © NVIDIA (NVIDIA Open Model License; runs on the server only). Icons: Lucide (ISC). three.js (MIT). It is a simulation; nothing here drives a real robot.</p>

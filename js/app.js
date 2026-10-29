@@ -24,6 +24,7 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, coarse ? 1.5 : 1.75));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.autoUpdate = false;
 renderer.toneMapping = THREE.AgXToneMapping;
 renderer.toneMappingExposure = 1.15;
 el('view').appendChild(renderer.domElement);
@@ -40,6 +41,12 @@ controls.minDistance = 1.6;
 controls.maxDistance = 20;
 controls.maxPolarAngle = 1.48;
 controls.screenSpacePanning = false;
+let needsRender = true;
+let occlusionDirty = true;
+controls.addEventListener('change', () => { needsRender = occlusionDirty = true; });
+renderer.domElement.addEventListener('webglcontextrestored', () => {
+  needsRender = renderer.shadowMap.needsUpdate = true;
+});
 
 scene.add(new THREE.HemisphereLight(0xdfe7f2, 0x202428, 1.1));
 const key = new THREE.DirectionalLight(0xfff4e8, 2.2);
@@ -99,7 +106,7 @@ const S = {
   arrivals: [], shown: null, planCursor: -1, eventCursor: -1, edit: null, recorded: null, runs: [],
   goalHint: true, lastDrive: false,
 };
-const ui = { candidates: true, plan: true, route: true, ghosts: true, reference: false, trail: true };
+const ui = { candidates: !coarse, plan: true, route: true, ghosts: false, reference: false, trail: true };
 let hero, inputGhost, endGhost, refGhost;
 let LOCAL = null; // ./local.js when this machine's server serves the page (raw rule names, plan times, refine switch)
 
@@ -129,10 +136,27 @@ zup.add(markers);
 function setPolyline(line, xy, z, dashed = false) {
   const a = new Float32Array((xy.length / 2) * 3);
   for (let i = 0, j = 0; i + 1 < xy.length; i += 2, j += 3) { a[j] = xy[i]; a[j + 1] = xy[i + 1]; a[j + 2] = z; }
-  line.geometry.dispose();
-  line.geometry = new THREE.BufferGeometry();
-  line.geometry.setAttribute('position', new THREE.BufferAttribute(a, 3));
-  if (dashed) line.computeLineDistances();
+  updateAttribute(line.geometry, 'position', a);
+  line.geometry.setDrawRange(0, a.length / 3);
+  line.geometry.computeBoundingSphere();
+  if (dashed) {
+    const distances = new Float32Array(xy.length / 2);
+    for (let i = 1; i < distances.length; i++) distances[i] = distances[i - 1] + Math.hypot(xy[2 * i] - xy[2 * i - 2], xy[2 * i + 1] - xy[2 * i - 1]);
+    updateAttribute(line.geometry, 'lineDistance', distances, 1);
+  }
+}
+function updateAttribute(geometry, name, values, itemSize = 3) {
+  let attribute = geometry.getAttribute(name);
+  if (!attribute || attribute.array.length !== values.length) {
+    // Reallocate only when the topology changes; dispose old GPU buffers first.
+    geometry.dispose();
+    attribute = new THREE.BufferAttribute(new Float32Array(values), itemSize);
+    attribute.setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute(name, attribute);
+  } else {
+    attribute.array.set(values);
+    attribute.needsUpdate = true;
+  }
 }
 const planFrame = (p, f) => p.qpos.slice(f * NQ, f * NQ + NQ);
 
@@ -150,10 +174,10 @@ function drawPlan(p) {
       }
     }
   }
-  fan.geometry.dispose();
-  fan.geometry = new THREE.BufferGeometry();
-  fan.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  fan.geometry.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  updateAttribute(fan.geometry, 'position', pos);
+  updateAttribute(fan.geometry, 'color', col);
+  fan.geometry.setDrawRange(0, pos.length / 3);
+  fan.geometry.computeBoundingSphere();
   const xy = [];
   for (let f = 0; f < p.frames; f++) xy.push(p.qpos[f * NQ], p.qpos[f * NQ + 1]);
   setPolyline(path, xy, 0.014);
@@ -165,15 +189,27 @@ function drawPlan(p) {
   inputGhost.pose(p.anchor_q);
   endGhost.pose(planFrame(p, p.frames - 1));
   S.shown = p;
+  needsRender = true;
 }
 
 // ---------------------------------------------------------------------------------------------------------- obstacles
 const obstacles = new THREE.Group();
 zup.add(obstacles);
 let solids = [];
+// Only for scene-owned geometry/materials; robot meshes share their model resources.
+function disposeGroup(group) {
+  group.traverse((o) => {
+    o.geometry?.dispose();
+    const materials = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
+    for (const material of materials) { material.map?.dispose(); material.dispose(); }
+  });
+  group.clear();
+  needsRender = true;
+}
 function buildObstacles(boxes, editing = false) {
-  for (const s of solids) { s.mesh.geometry.dispose(); s.mesh.material.dispose(); s.edges.geometry.dispose(); }
-  obstacles.clear();
+  disposeGroup(obstacles);
+  occlusionDirty = true;
+  renderer.shadowMap.needsUpdate = true;
   solids = boxes.map((b, i) => {
     const h = b.z_top - b.z_bottom, over = b.z_bottom > 0.05;
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(2 * b.half_xy[0], 2 * b.half_xy[1], h),
@@ -204,9 +240,13 @@ function seeThrough(q) {
     _ray.far = Math.max(0, _a.length() - 0.25);
     for (const h of _ray.intersectObjects(meshes, false)) hit.add(h.object.userData.index);
   }
+  occlusionDirty = false;
   for (const s of solids) {
     const m = s.mesh.material, want = hit.has(s.mesh.userData.index) ? 0.2 : 1;
-    m.opacity += (want - m.opacity) * 0.2;
+    const previous = m.opacity;
+    m.opacity = Math.abs(want - m.opacity) < 0.001 ? want : m.opacity + (want - m.opacity) * 0.2;
+    if (m.opacity !== previous) needsRender = true;
+    if (m.opacity !== want) occlusionDirty = true;
     m.depthWrite = m.opacity > 0.95;
   }
 }
@@ -217,7 +257,9 @@ function glowContacts(q, force, dt) {
       const ex = Math.abs(c * dx - sn * dy) - b.half_xy[0], ey = Math.abs(sn * dx + c * dy) - b.half_xy[1];
       if (Math.hypot(Math.max(ex, 0), Math.max(ey, 0)) < 0.7) s.glow = 0.5;
     }
+    const previous = s.glow;
     s.glow = Math.max(0, s.glow - dt);
+    if (previous !== s.glow) needsRender = true;
     s.mesh.material.emissive.setHex(HUE.bad);
     s.mesh.material.emissiveIntensity = s.glow;
   }
@@ -227,9 +269,16 @@ function glowContacts(q, force, dt) {
 function resetRun() {
   S.ticks = []; S.plans = []; S.events = []; S.disp = null; S.arrivals = [];
   S.shown = null; S.planCursor = -1; S.eventCursor = -1; S.trailAt = -1;
+  S.marksKey = null;
+  posedTime = null;
+  lastDisplayedTime = null;
+  needsRender = true;
   for (const o of [fan, path, route, steer, nextReplan]) o.visible = false;
   trace.length = 0;
   el('trace').innerHTML = '';
+  el('marks').innerHTML = '';
+  el('caption').classList.remove('on');
+  el('toast').classList.remove('on');
 }
 function addTicks(list) {
   const last = S.ticks.length ? S.ticks[S.ticks.length - 1].tick : -1;
@@ -257,6 +306,7 @@ const on = {
   episode(e, fresh = false) {
     const newRun = fresh || !S.episode || e.episode !== S.episode.episode;
     S.episode = e;
+    needsRender = true;
     if (newRun) { resetRun(); if (!S.edit) buildObstacles(e.boxes); }
     renderScenes();
     renderControls();
@@ -385,17 +435,28 @@ function logPlan(p) {
   const secs = LOCAL ? LOCAL.planSeconds(p) : '';
   logLine(planIcon(p), ruleText(p.rule) + (s.length ? ` · ${s.join(' · ')}` : ''), `${p.safe}/${p.candidates} safe${clear}${secs}`, holding(p.rule));
 }
-function logEvent(e) {
+function logEvent(e, notify = true) {
   if (e.type === 'goal') logLine('flag', 'New goal', `${e.xy[0].toFixed(1)}, ${e.xy[1].toFixed(1)} m`);
   else if (e.type === 'reached') {
     const g = [...S.events].reverse().find((x) => x.type === 'goal' && x.t <= e.t), dur = e.t - (g ? g.t : 0);
     logLine('flag', 'Reached the goal', `${dur.toFixed(1)} s`);
-    toast(`Reached the goal in ${dur.toFixed(1)} s of sim time`);
+    if (notify) toast(`Reached the goal in ${dur.toFixed(1)} s of sim time`);
   }
   else if (e.type === 'contact') logLine('triangle-alert', 'Touched an obstacle', `${e.force_n} N`, true);
-  else if (e.type === 'fall') { logLine('triangle-alert', 'Fell', `pelvis ${e.height_m} m`, true); toast('The robot fell. Reset to try again.', true); }
+  else if (e.type === 'fall') { logLine('triangle-alert', 'Fell', `pelvis ${e.height_m} m`, true); if (notify) toast('The robot fell. Reset to try again.', true); }
   else if (e.type === 'push') logLine('zap', 'Shoved', `${Math.hypot(...e.dv).toFixed(1)} m/s`);
-  else if (e.type === 'scene_refused') toast('That layout could not start in the simulator; back to the default scene.', true);
+  else if (e.type === 'scene_refused' && notify) toast('That layout could not start in the simulator; back to the default scene.', true);
+}
+function rebuildTrace(t) {
+  trace.length = 0;
+  el('trace').innerHTML = '';
+  S.planCursor = latestAt(S.plans, t);
+  S.eventCursor = latestAt(S.events, t);
+  const entries = [
+    ...S.plans.slice(0, S.planCursor + 1).filter((p) => p.tick > 0).map((p) => ({ t: p.t, plan: p })),
+    ...S.events.slice(0, S.eventCursor + 1).filter((e) => ['goal', 'reached', 'contact', 'fall', 'push'].includes(e.type)).map((e) => ({ t: e.t, event: e })),
+  ].sort((a, b) => a.t - b.t).slice(-6);
+  for (const entry of entries) entry.plan ? logPlan(entry.plan) : logEvent(entry.event, false);
 }
 let toastTimer;
 function toast(text, bad = false) {
@@ -415,7 +476,10 @@ function hud(dt, f, p) {
   hudClock = 0;
   const mode = f ? f.mode : 'idle';
   let state = MODE[mode] || mode;
-  if (mode === 'hold' && S.events.some((e) => e.type === 'reached' && e.t <= S.disp + 1e-9)) state = 'At the goal';
+  if (mode === 'hold' && S.events.some((e) => e.type === 'reached' && e.t <= S.disp + 1e-9)) {
+    const goal = S.episode?.goal;
+    state = goal && f && Math.hypot(f.q[0] - goal[0], f.q[1] - goal[1]) > 0.4 ? 'Stopped near the goal' : 'At the goal';
+  }
   if (mode === 'navigate' && p && p.tick > 0 && skills(p).length) state = `Walking · ${skills(p).join(' · ')}`;
   if (S.status && S.status.paused && S.view === 'live') state = `Paused · ${state}`;
   el('state').textContent = state;
@@ -462,16 +526,24 @@ function hud(dt, f, p) {
 // ---------------------------------------------------------------------------------------------------------- frame loop
 const _q = new Float64Array(NQ);
 let camFollow = null;
+let posedTime = null, lastDisplayedTime = null;
 function follow(q, dt) {
   const p = new THREE.Vector3(q[0], 0.8, -q[1]);
-  if (!camFollow) { camFollow = p.clone(); controls.target.copy(p); camera.position.set(p.x - 3.4, 3.9, p.z + 4.6); return; }
+  if (!camFollow) {
+    camFollow = p.clone(); controls.target.copy(p); camera.position.set(p.x - 3.4, 3.9, p.z + 4.6);
+    key.position.set(p.x + 4, 9, p.z + 3); key.target.position.copy(p);
+    needsRender = renderer.shadowMap.needsUpdate = true;
+    return;
+  }
   const k = 1 - Math.exp(-dt * 4); // smooth, so a shove or a stumble does not jerk the view
   const d = p.clone().sub(camFollow).multiplyScalar(k);
+  if (d.lengthSq() < 1e-10) return;
   camFollow.add(d);
   controls.target.add(d);
   camera.position.add(d);
   key.position.set(camFollow.x + 4, 9, camFollow.z + 3);
   key.target.position.copy(camFollow);
+  needsRender = renderer.shadowMap.needsUpdate = true;
 }
 
 function frame(dt) {
@@ -480,16 +552,24 @@ function frame(dt) {
   const i = tickIndex(S.disp), a = S.ticks[i], b = S.ticks[Math.min(i + 1, S.ticks.length - 1)];
   const u = b.t > a.t ? Math.min(1, Math.max(0, (S.disp - a.t) / (b.t - a.t))) : 0;
   const q = lerpQpos(a.q, b.q, u, _q);
-  hero.pose(q);
+  const poseChanged = S.disp !== posedTime;
+  if (poseChanged) {
+    hero.pose(q);
+    posedTime = S.disp;
+    needsRender = renderer.shadowMap.needsUpdate = true;
+  }
   follow(q, dt);
   const pi = latestAt(S.plans, S.disp), p = pi >= 0 ? S.plans[pi] : null;
   if (p && p !== S.shown) drawPlan(p);
   if (!p) S.shown = null;
-  if (S.view !== 'review') {
+  if (lastDisplayedTime === null || S.disp < lastDisplayedTime || (S.view === 'review' && S.disp !== lastDisplayedTime)) {
+    rebuildTrace(S.disp);
+  } else if (S.view !== 'review') {
     for (let k = S.planCursor + 1; k <= pi; k++) if (S.plans[k].tick > 0 || S.plans.length === 1) logPlan(S.plans[k]);
     for (let k = S.eventCursor + 1; k < S.events.length && S.events[k].t <= S.disp + 1e-9; k++) { logEvent(S.events[k]); S.eventCursor = k; }
   }
-  S.planCursor = Math.max(S.planCursor, pi);
+  S.planCursor = pi;
+  lastDisplayedTime = S.disp;
   const planning = a.mode === 'navigate' || a.mode === 'settle', show = !!p && planning;
   fan.visible = ui.candidates && show;
   path.visible = steer.visible = nextReplan.visible = ui.plan && show;
@@ -499,9 +579,9 @@ function frame(dt) {
   if (refGhost.visible) refGhost.pose(planFrame(p, Math.min(p.frames - 1, Math.max(0, a.tick - p.tick))));
   const goal = S.episode && S.episode.goal;
   goalRing.visible = goalZone.visible = !!goal && (a.mode !== 'idle' || S.view === 'live');
-  if (goal) { goalRing.position.set(goal[0], goal[1], 0.015); goalZone.position.copy(goalRing.position); goalRing.rotation.z += dt * 1.2; }
+  if (goal) { goalRing.position.set(goal[0], goal[1], 0.015); goalZone.position.copy(goalRing.position); }
   markers.visible = !!S.recorded;
-  for (const m of markers.children) m.rotation.z -= dt * 0.8;
+  if (poseChanged) for (const m of markers.children) m.rotation.z -= dt * 0.8;
   if (ui.trail && i !== S.trailAt) {
     S.trailAt = i;
     const buf = trail.geometry.attributes.position.array, n = Math.min(2048, Math.floor(i / 2) + 1), from = i - 2 * (n - 1);
@@ -512,7 +592,7 @@ function frame(dt) {
   }
   trail.visible = ui.trail && i > 1;
   glowContacts(q, a.force, dt);
-  if (!S.edit) seeThrough(q);
+  if (!S.edit && (poseChanged || occlusionDirty)) seeThrough(q);
   hud(dt, a, p);
 }
 
@@ -523,12 +603,13 @@ renderer.setAnimationLoop((now) => {
   if (document.hidden) return;
   frame(dt);
   controls.update();
-  renderer.render(scene, camera);
+  if (needsRender) { renderer.render(scene, camera); needsRender = false; }
 });
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  needsRender = true;
 });
 
 // ---------------------------------------------------------------------------------------------------------- driving
@@ -589,6 +670,7 @@ el('wheel').onclick = async () => {
 // ---------------------------------------------------------------------------------------------------------- views
 function setView(v) {
   S.view = v;
+  needsRender = true;
   renderPlayback();
 }
 function renderPlayback() {
@@ -596,6 +678,20 @@ function renderPlayback() {
   el('to-live').hidden = !live();
   el('play').innerHTML = icon(S.view === 'replay' ? 'pause' : 'play', 13);
   el('play').title = S.view === 'replay' ? 'Pause the replay' : 'Replay this run';
+  el('play').setAttribute('aria-label', el('play').title);
+  if (S.recorded) {
+    const paused = S.view !== 'replay';
+    el('pause').querySelector('.lbl').textContent = paused ? 'Resume' : 'Pause';
+    el('pause').querySelector('[data-icon]').innerHTML = icon(paused ? 'play' : 'pause');
+  }
+}
+function seekTo(time) {
+  if (!S.ticks.length) return;
+  S.disp = Math.max(S.ticks[0].t, Math.min(S.ticks[S.ticks.length - 1].t, time));
+  rebuildTrace(S.disp);
+  lastDisplayedTime = S.disp;
+  el('toast').classList.remove('on');
+  needsRender = true;
 }
 (function scrub() {
   const bar = el('runbar');
@@ -603,17 +699,18 @@ function renderPlayback() {
   const seek = (e) => {
     if (!S.ticks.length) return;
     const r = bar.getBoundingClientRect(), t0 = S.ticks[0].t, t1 = Math.max(t0 + 1, S.ticks[S.ticks.length - 1].t);
-    S.disp = Math.min(S.ticks[S.ticks.length - 1].t, t0 + Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * (t1 - t0));
+    seekTo(t0 + Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * (t1 - t0));
     setView('review');
   };
   bar.addEventListener('pointerdown', (e) => { dragging = true; bar.setPointerCapture(e.pointerId); seek(e); });
   bar.addEventListener('pointermove', (e) => dragging && seek(e));
   bar.addEventListener('pointerup', () => { dragging = false; });
+  bar.addEventListener('pointercancel', () => { dragging = false; });
 })();
 el('play').onclick = () => {
   if (!S.ticks.length) return;
   if (S.view === 'replay') return setView('review');
-  if (S.view === 'live' || S.disp >= S.ticks[S.ticks.length - 1].t - 1e-6) S.disp = S.ticks[0].t;
+  if (S.view === 'live' || S.disp >= S.ticks[S.ticks.length - 1].t - 1e-6) seekTo(S.ticks[0].t);
   setView('replay');
 };
 el('to-live').onclick = () => setView('live');
@@ -638,6 +735,7 @@ function obstacleAt(e) {
 }
 let press = null, dragBox = null;
 renderer.domElement.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0 || !e.isPrimary) { press = null; return; }
   press = { x: e.clientX, y: e.clientY, t: performance.now() };
   if (S.edit) {
     const k = obstacleAt(e), p = onFloor(e);
@@ -649,6 +747,10 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
     }
   }
 });
+renderer.domElement.addEventListener('pointercancel', () => {
+  press = dragBox = null;
+  controls.enabled = true;
+});
 renderer.domElement.addEventListener('pointermove', (e) => {
   if (!dragBox) return;
   const p = onFloor(e);
@@ -656,6 +758,7 @@ renderer.domElement.addEventListener('pointermove', (e) => {
   const b = S.edit.boxes[dragBox.k];
   b.center_xy = [Math.round((p.x + dragBox.dx) * 20) / 20, Math.round((p.y + dragBox.dy) * 20) / 20];
   solids[dragBox.k].mesh.position.set(b.center_xy[0], b.center_xy[1], solids[dragBox.k].mesh.position.z);
+  needsRender = renderer.shadowMap.needsUpdate = true;
 });
 renderer.domElement.addEventListener('pointerup', (e) => {
   if (dragBox) { dragBox = null; controls.enabled = true; buildObstacles(S.edit.boxes, true); pick(S.edit.sel); press = null; return; }
@@ -686,14 +789,16 @@ function hideHint() { if (S.goalHint) { S.goalHint = false; el('hint').classList
 
 addEventListener('keydown', (e) => {
   const t = e.target;
-  if ((t.tagName === 'INPUT' && t.type !== 'checkbox') || t.tagName === 'TEXTAREA' || e.metaKey || e.ctrlKey || e.altKey) return;
-  if (e.code === 'Space' || e.code === 'Enter') e.preventDefault();
+  if (t.closest('input, textarea, select, [contenteditable="true"]') || el('about').open || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (t.closest('button, summary') && ['Space', 'Enter'].includes(e.code)) return;
+  if (e.repeat) return;
+  if (e.code === 'Space') e.preventDefault();
   if (S.edit) return editKey(e);
   if (e.code === 'Space') {
     if (S.recorded) return el('play').click();
     act('pause', { value: !(S.episode && S.episode.paused) });
   } else if (e.code === 'KeyR') resetScene();
-  else if (e.code === 'Escape') act('stop');
+  else if (e.code === 'Escape') S.recorded ? setView('review') : act('stop');
   else if (e.code === 'KeyF') shove();
   else if (e.code === 'KeyE') startEdit();
   else if (/^Digit[1-8]$/.test(e.code)) { const s = S.scenes[Number(e.code.slice(5)) - 1]; if (s) chooseScene(s.id); }
@@ -703,6 +808,7 @@ addEventListener('pointerup', (e) => { const c = e.target.closest && e.target.cl
 // ---------------------------------------------------------------------------------------------------------- editor
 function pick(k) {
   if (!S.edit) return;
+  needsRender = true;
   S.edit.sel = k;
   solids.forEach((s, i) => { s.edges.material.color.setHex(i === k ? HUE.plan : 0xffffff); s.edges.material.opacity = i === k ? 1 : 0.4; });
 }
@@ -756,7 +862,7 @@ function chooseScene(id) {
   act('reset', { scene: id });
 }
 function resetScene() {
-  if (S.recorded) { S.disp = S.ticks.length ? S.ticks[0].t : null; return setView('replay'); }
+  if (S.recorded) { if (S.ticks.length) seekTo(S.ticks[0].t); return setView('replay'); }
   act('reset');
 }
 function renderScenes() {
@@ -774,6 +880,7 @@ function renderScenes() {
   }
   const cur = S.recorded ? S.recorded.scene : S.episode && S.episode.scene;
   for (const b of box.children) b.classList.toggle('on', b.dataset.scene === cur);
+  for (const b of box.children) b.classList.toggle('loading', b.dataset.scene === S.pendingScene);
   const s = sceneOf(cur);
   el('blurb').textContent = s ? s.blurb : cur === 'custom' ? 'Your own layout.' : '';
 }
@@ -802,11 +909,11 @@ function buildPanel() {
   for (const n of document.querySelectorAll('[data-icon]')) n.innerHTML = icon(n.dataset.icon, Number(n.dataset.size) || 16);
   if (LOCAL) LOCAL.addPlannerSwitch(el('planner-local'), act);
   const toggles = [['candidates', 'Candidate motions', 'cand'], ['plan', 'Chosen plan & steering', 'plan'], ['route', 'Route', 'route'],
-    ['ghosts', 'Planner poses', 'input'], ['reference', 'Pose SONIC tracks', 'plan'], ['trail', 'Trail', 'trail']];
+    ['ghosts', 'Predicted planner poses', 'input'], ['reference', 'Pose SONIC tracks', 'plan'], ['trail', 'Trail', 'trail']];
   for (const [k, text, sw] of toggles) {
     const l = document.createElement('label');
     l.innerHTML = `<span><i class="sw sw-${sw}"></i>${text}</span><input type="checkbox" role="switch" ${ui[k] ? 'checked' : ''}>`;
-    l.querySelector('input').onchange = (ev) => { ui[k] = ev.target.checked; };
+    l.querySelector('input').onchange = (ev) => { ui[k] = ev.target.checked; needsRender = true; };
     el('overlays').appendChild(l);
   }
   el('pause').onclick = () => (S.recorded ? el('play').click() : act('pause', { value: !(S.episode && S.episode.paused) }));
@@ -823,39 +930,57 @@ function buildPanel() {
 }
 
 // ---------------------------------------------------------------------------------------------------------- recorded mode
+let recordedRequest = 0;
 async function goRecorded(why) {
+  recordedRequest++;
   if (S.source && S.source.close) S.source.close();
   const rec = new RecordedSource(CONFIG.data);
   S.source = rec;
   S.runs = await rec.index();
-  if (!S.runs.length) { setLoad('load-link', 0, 'no recorded runs found'); return; }
+  if (!S.runs.length) throw new Error('No recorded runs found. Please retry.');
   if (!S.scenes.length) S.scenes = SCENE_FALLBACK.filter((s) => S.runs.some((r) => r.scene === s.id));
   S.recorded = { scene: null, markers: [], why };
   setLoad('load-link', 1, 'recorded runs');
   renderLink();
   renderScenes();
   const first = FEATURED.find((id) => S.runs.some((r) => r.scene === id)) || S.runs[0].scene;
-  await showRecordedScene(first, true);
+  if (!await showRecordedScene(first, true)) throw new Error('Could not load the first run. Please retry.');
   ready();
 }
 async function showRecordedScene(id, autoplay) {
   const runs = S.runs.filter((r) => r.scene === id);
   if (!runs.length) return toast('No recorded run for this playground yet.');
+  if (autoplay) return playRecorded(runs[0].file);
   S.recorded.scene = id;
   S.recorded.markers = runs.map((r) => ({ goal: r.goal, file: r.file }));
-  markers.clear();
+  disposeGroup(markers);
   for (const r of runs) {
     const m = new THREE.Mesh(new THREE.RingGeometry(0.24, 0.32, 40, 1, 0, Math.PI * 1.6), new THREE.MeshBasicMaterial({ color: HUE.goal, transparent: true, opacity: 0.7, depthWrite: false }));
     m.position.set(r.goal[0], r.goal[1], 0.012);
     markers.add(m);
   }
   renderScenes();
-  if (autoplay) await playRecorded(runs[0].file);
 }
 async function playRecorded(file) {
+  const source = S.source, request = ++recordedRequest;
+  if (source?.kind !== 'recorded') return false;
+  S.pendingScene = S.runs.find((r) => r.file === file)?.scene;
+  el('scenes').setAttribute('aria-busy', 'true');
+  renderScenes();
   let run;
-  try { run = await S.source.run(file); } catch (e) { return toast(`Could not load that run (${e.message}).`, true); }
-  if (run.meta.scene !== S.recorded.scene) await showRecordedScene(run.meta.scene, false);
+  try { run = await source.run(file); } catch (e) {
+    if (request === recordedRequest) toast(`Could not load that run (${e.message}). Select it again to retry.`, true);
+    return false;
+  } finally {
+    if (request === recordedRequest) {
+      S.pendingScene = null;
+      el('scenes').setAttribute('aria-busy', 'false');
+      renderScenes();
+    }
+  }
+  // A slower response must never replace a more recent scene or live connection.
+  if (request !== recordedRequest || source !== S.source || !S.recorded) return false;
+  if (run.meta.scene !== S.recorded.scene) showRecordedScene(run.meta.scene, false);
   S.episode = { boxes: run.boxes, goal: run.meta.goal, scene: run.meta.scene, episode: file, replan_ticks: 8, speed: 1, paused: false };
   resetRun();
   buildObstacles(run.boxes);
@@ -867,6 +992,7 @@ async function playRecorded(file) {
   camFollow = null;
   setView('replay');
   hideHint();
+  return true;
 }
 async function goLive(manual = false) {
   if (CONFIG.server === null) return goRecorded('off');
@@ -878,7 +1004,11 @@ async function goLive(manual = false) {
     return;
   }
   S.health = h;
-  if (S.recorded) { S.recorded = null; markers.clear(); }
+  recordedRequest++;
+  S.source?.close?.();
+  S.pendingScene = null;
+  el('scenes').setAttribute('aria-busy', 'false');
+  if (S.recorded) { S.recorded = null; disposeGroup(markers); }
   S.source = new LiveSource(CONFIG.server, S.client, on);
   S.source.connect();
   setView('live');
@@ -902,7 +1032,7 @@ function setLoad(id, frac, text) {
   if (text) row.querySelector('em').textContent = text;
 }
 function ready() {
-  if (hero && (S.hello || S.recorded)) {
+  if (hero && (S.hello || (S.recorded && S.ticks.length))) {
     document.body.classList.add('ready');
     if (S.goalHint && !S.recorded) el('hint').classList.add('on');
   }
@@ -915,7 +1045,8 @@ async function start() {
   S.client = await clientIdentity();
   const modelP = loadRobotModel(CONFIG.model, (got, total) => setLoad('load-model', total ? (0.95 * got) / total : 0.5,
     `${(got / 1e6).toFixed(1)}${total ? ` / ${(total / 1e6).toFixed(1)}` : ''} MB`));
-  const linkP = goLive();
+  // Observe both startup promises immediately, including early network failures.
+  const linkP = goLive().then(() => null, (error) => error);
   const model = await modelP;
   hero = new Robot(model, { material: solidMaterials() });
   inputGhost = new Robot(model, { lod: 'lite', material: ghostMaterial(HUE.input, 0.18), shadows: false });
@@ -925,8 +1056,16 @@ async function start() {
   zup.add(hero.root);
   setLoad('load-model', 1, `ready · ${(model.bytes / 1e6).toFixed(1)} MB`);
   document.body.classList.add('model-ready');
-  await linkP;
+  const linkError = await linkP;
+  if (linkError) throw linkError;
   ready();
-  window.NAV = { S, ui, camera, controls, act, cmd: (op, x) => S.source.cmd(op, x), playRecorded, goLive, goRecorded };
+  window.NAV = { S, ui, camera, controls, act, cmd: (op, x) => S.source.cmd(op, x), playRecorded, goLive, goRecorded,
+    stats: () => ({ ...renderer.info.memory, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
+      renderedFrames: renderer.info.render.frame, cachedRuns: S.source.cache?.size || 0 }) };
 }
-start().catch((e) => { console.error(e); el('load-error').textContent = String(e.message || e); });
+start().catch((e) => {
+  console.error(e);
+  el('load-error').textContent = `${String(e.message || e)} Check your connection and retry.`;
+  el('load-retry').hidden = false;
+});
+el('load-retry').onclick = () => location.reload();

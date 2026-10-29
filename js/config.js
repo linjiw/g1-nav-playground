@@ -22,10 +22,11 @@ function chosenServer() {
   return fallback;
 }
 
+const server = chosenServer();
 export const CONFIG = {
   local,
-  recordedOnly: !local && !publicServer, // the static site
-  server: chosenServer(),
+  recordedOnly: server === null,
+  server,
   model: local ? '/api/model' : 'assets/robot',
   data: local ? '/data' : 'data',
 };

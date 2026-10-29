@@ -16,19 +16,20 @@ export async function clientIdentity() {
   return { id, handle };
 }
 
-async function withTimeout(promise, ms) {
-  let timer;
+async function fetchJSON(url, ms = 30000, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
   try {
-    return await Promise.race([promise, new Promise((_, no) => { timer = setTimeout(() => no(new Error('timeout')), ms); })]);
+    const r = await fetch(url, { ...options, signal: controller.signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
   } finally { clearTimeout(timer); }
 }
 
 // Is a live server reachable at `base`? Resolves to its health record, or null.
 export async function probe(base, ms = 4500) {
   try {
-    const r = await withTimeout(fetch(`${base}/api/health`, { cache: 'no-store' }), ms);
-    if (!r.ok) return null;
-    const h = await r.json();
+    const h = await fetchJSON(`${base}/api/health`, ms, { cache: 'no-store' });
     return h && h.ok ? h : null;
   } catch { return null; }
 }
@@ -65,20 +66,36 @@ export class LiveSource {
 }
 
 export class RecordedSource {
-  constructor(base) {
+  constructor(base, maxCachedRuns = 4) {
     this.base = base;
     this.kind = 'recorded';
     this.cache = new Map();
+    this.maxCachedRuns = maxCachedRuns;
   }
   async index() {
-    if (!this._index) this._index = fetch(`${this.base}/runs/index.json`).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+    if (!this._index) this._index = fetchJSON(`${this.base}/runs/index.json`).catch((e) => {
+      this._index = null;
+      throw e;
+    });
     return this._index;
   }
   async run(file) {
-    if (!this.cache.has(file)) this.cache.set(file, fetch(`${this.base}/runs/${file}`).then((r) => {
-      if (!r.ok) throw new Error(`${r.status} ${file}`);
-      return r.json();
-    }));
-    return this.cache.get(file);
+    let pending = this.cache.get(file);
+    if (!pending) pending = fetchJSON(`${this.base}/runs/${file}`).then((run) => {
+      if (!run.meta || !Array.isArray(run.boxes) || !run.frames?.length ||
+          !Array.isArray(run.plans) || !Array.isArray(run.events) ||
+          run.frames.some((f) => !Number.isFinite(f.t) || f.q?.length !== 36 || !f.q.every(Number.isFinite))) {
+        throw new Error('Invalid recorded run');
+      }
+      return run;
+    }).catch((e) => {
+      if (this.cache.get(file) === pending) this.cache.delete(file);
+      throw e;
+    });
+    // Keep recently used runs, without retaining every scene's decoded motion data.
+    this.cache.delete(file);
+    this.cache.set(file, pending);
+    while (this.cache.size > this.maxCachedRuns) this.cache.delete(this.cache.keys().next().value);
+    return pending;
   }
 }
